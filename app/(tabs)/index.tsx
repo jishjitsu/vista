@@ -1,74 +1,211 @@
-import { Image, StyleSheet, Platform } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, Button, Image, ActivityIndicator, Alert, StyleSheet } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
-
-export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12'
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          Tap the Explore tab to learn more about what's included in this starter app.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          When you're ready, run{' '}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
-  );
+// TODO: Use environment variables for different environments
+const BACKEND_URL = 'https://c6e8-34-87-52-212.ngrok-free.app'; // Replace with your backend URL
+interface MediaFile {
+  uri: string;
+  name: string;
+  type: string;
 }
 
+interface AnalysisResponse {
+  text?: string;
+  session_id?: string;
+  error?: string;
+}
+
+const CaptureScreen: React.FC = () => {
+  const [mediaUri, setMediaUri] = useState<string | null>(null);
+  const [mediaType, setMediaType] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  
+  const videoRef = useRef<Video>(null);
+
+  useEffect(() => {
+    // Request camera permissions on component mount
+    (async () => {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      setHasPermission(status === 'granted');
+    })();
+    
+    // Cleanup resources when component unmounts
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.unloadAsync();
+      }
+    };
+  }, []);
+
+  const handleVideoStatusUpdate = (status: AVPlaybackStatus) => {
+    if (status.isLoaded) {
+      setIsPlaying(status.isPlaying);
+    }
+  };
+
+  const captureMedia = async () => {
+    // Don't proceed if we're still checking permissions or don't have them
+    if (hasPermission === null) {
+      return; // Still loading permissions
+    }
+    
+    if (hasPermission === false) {
+      Alert.alert('Permission Denied', 'Camera access is required.');
+      return;
+    }
+
+    try {
+      const response = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        quality: 0.8,
+        allowsEditing: true,
+      });
+
+      if (!response.canceled && response.assets && response.assets.length > 0) {
+        const asset = response.assets[0];    
+        
+        setMediaUri(asset.uri);
+        setMediaType(asset.type || null);
+
+        const mediaFile: MediaFile = {
+          uri: asset.uri,
+          name: asset.fileName ?? `media_${Date.now()}.${asset.uri.split('.').pop()}`,
+          type: asset.type ?? 'application/octet-stream',
+        };
+        
+        await uploadToBackend(mediaFile);
+      }
+    } catch (error) {
+      console.error('Camera Error:', error);
+      Alert.alert('Error', 'Failed to capture media');
+    }
+  };
+
+  const uploadToBackend = async (file: MediaFile) => {
+    setLoading(true);
+    setResult(null);
+    
+    try {
+      console.log("Uploading file:", file);
+      
+      // Create form data properly for React Native
+      const formData = new FormData();
+      formData.append('prompt', 'Please analyze this media.');
+      
+      // Correctly format the file object for FormData
+      const fileExt = file.uri.split('.').pop()?.toLowerCase();
+      const fileType = file.type || (
+        fileExt === 'jpg' || fileExt === 'jpeg' ? 'image/jpeg' :
+        fileExt === 'png' ? 'image/png' :
+        fileExt === 'mp4' ? 'video/mp4' :
+        fileExt === 'mov' ? 'video/quicktime' :
+        'application/octet-stream'
+      );
+      
+      formData.append('media_file', {
+        uri: file.uri,
+        name: file.name,
+        type: fileType,
+      } as any);
+  
+      console.log("FormData file type:", fileType);
+      
+      const response = await fetch(`${BACKEND_URL}/analyze-media`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+          // Don't set Content-Type header, React Native will set it with boundary
+        },
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Server response:", errorText);
+        try {
+          // Try to parse as JSON first
+          const errorData = JSON.parse(errorText);
+          Alert.alert('Error', errorData.error || 'Analysis failed.');
+        } catch {
+          // If not JSON, use the raw text
+          Alert.alert('Error', `Server error: ${response.status} ${response.statusText}`);
+        }
+        return;
+      }
+  
+      try {
+        const data: AnalysisResponse = await response.json();
+        setResult(data.text || 'No result text.');
+        if (data.session_id) setSessionId(data.session_id);
+      } catch (error) {
+        console.error('JSON parsing error:', error);
+        Alert.alert('Error', 'Failed to parse server response');
+      }
+    } catch (error) {
+      console.error('Upload Error:', error);
+      Alert.alert('Error', 'Failed to upload and analyze media');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isVideo = mediaType ? mediaType.startsWith('video') :
+               mediaUri ? /\.(mp4|mov|avi)$/i.test(mediaUri) : false;
+
+
+  return (
+    <View style={styles.container}>
+      <Button title="Capture Media" onPress={captureMedia} disabled={loading} />
+
+      {mediaUri && (
+        <View style={styles.mediaContainer}>
+          {isVideo ? (
+            <Video
+              ref={videoRef}
+              source={{ uri: mediaUri }}
+              style={styles.media}
+              resizeMode={ResizeMode.CONTAIN}
+              useNativeControls
+              onPlaybackStatusUpdate={handleVideoStatusUpdate}
+            />
+          ) : (
+            <Image source={{ uri: mediaUri }} style={styles.media} resizeMode="contain" />
+          )}
+        </View>
+      )}
+
+      {loading && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0000ff" />
+          <Text style={styles.loadingText}>Analyzing media...</Text>
+        </View>
+      )}
+
+      {result && (
+        <View style={styles.resultContainer}>
+          <Text style={styles.resultTitle}>AI Analysis:</Text>
+          <Text style={styles.resultText}>{result}</Text>
+        </View>
+      )}
+    </View>
+  );
+};
+
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+  container: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  mediaContainer: { marginTop: 20 },
+  media: { width: 300, height: 300, borderRadius: 10 },
+  loadingContainer: { marginTop: 20, alignItems: 'center' },
+  loadingText: { marginTop: 10, color: '#666' },
+  resultContainer: { marginTop: 20, width: '100%', padding: 10, backgroundColor: '#f5f5f5', borderRadius: 8 },
+  resultTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 10 },
+  resultText: { fontSize: 14 },
 });
+
+export default CaptureScreen;
