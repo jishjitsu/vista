@@ -6,8 +6,7 @@ import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av'; // Import from ex
 
 // IMPORTANT: Replace with your actual backend URL
 // TODO: Use environment variables for different environments
-const BACKEND_URL = 'https://0fc6-34-125-212-198.ngrok-free.app'; // <--- Using your ngrok URL
-
+const BACKEND_URL = 'https://c6e8-34-87-52-212.ngrok-free.app'; // Replace with your backend URL
 interface MediaFile {
   uri: string;
   name: string;
