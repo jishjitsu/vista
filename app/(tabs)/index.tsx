@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, Button, Image, ActivityIndicator, Alert, StyleSheet } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
-
+import { Video, ResizeMode } from 'expo-av';
+import { AVPlaybackStatus } from 'expo-av';
 // TODO: Use environment variables for different environments
-const BACKEND_URL = 'https://c6e8-34-87-52-212.ngrok-free.app'; // Replace with your backend URL
+const BACKEND_URL = 'https://8f56-34-143-143-231.ngrok-free.app'; // Replace with your backend URL
+
 interface MediaFile {
   uri: string;
   name: string;
